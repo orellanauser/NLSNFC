@@ -1,0 +1,57 @@
+# IDE files
+*.iml
+.idea/
+.idea/caches
+.idea/libraries
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Local configuration
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android Studio captures
+captures/
+
+# Native build directories
+.externalNativeBuild/
+.cxx/
+**/.cxx/
+externalNativeBuild/
+**/externalNativeBuild/
+
+# Release/debug artifacts
+*.apk
+*.ap_
+*.aab
+*.aar
+app/release/
+
+# Keystores
+*.jks
+*.keystore
+keystore.properties
+
+# Logs
+*.log
+
+# Keep Gradle wrapper files tracked
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+!gradlew
+!gradlew.bat
+
+# Misc tooling
+.vscode/
+.history/
+.navigation/
