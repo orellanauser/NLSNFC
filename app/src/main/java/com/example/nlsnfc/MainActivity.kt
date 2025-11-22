@@ -118,6 +118,13 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         tabLayout.addTab(tabLayout.newTab().setText("History"))
         tabLayout.addTab(tabLayout.newTab().setText("Errors"))
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            /**
+             * Called when a tab is selected.
+             * Shows the history list if the first tab is selected, and hides the errors list.
+             * Shows the errors list if the second tab is selected, and hides the history list.
+             *
+             * @param tab The tab that was selected.
+             */
             override fun onTabSelected(tab: TabLayout.Tab) {
                 if (tab.position == 0) {
                     lvHistory.visibility = android.view.View.VISIBLE
@@ -128,7 +135,19 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 }
             }
 
+            /**
+             * Called when a tab is unselected.
+             * No-op implementation; does nothing.
+             *
+             * @param tab The tab that was unselected.
+             */
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            /**
+             * Called when a tab is reselected.
+             * No-op implementation; does nothing.
+             *
+             * @param tab The tab that was reselected.
+             */
             override fun onTabReselected(tab: TabLayout.Tab?) {}
         })
         // Default to History tab
