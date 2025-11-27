@@ -1,6 +1,4 @@
 package com.example.nlsnfc
-
-import android.app.Activity
 import android.content.Intent
 import android.nfc.NfcAdapter
 import android.nfc.Tag
@@ -29,7 +27,6 @@ import androidx.appcompat.app.AlertDialog
 import com.google.android.material.tabs.TabLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import java.io.BufferedReader
 import java.io.File
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
@@ -145,6 +142,28 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         lvHistory.adapter = historyAdapter
         errorAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
         lvErrors.adapter = errorAdapter
+
+        // Execution guard: allow ONLY Android 11+ (API 30 or newer). Older versions show a warning and exit after 10 seconds.
+        run {
+            val isAndroid11Plus = Build.VERSION.SDK_INT >= 30
+            if (!isAndroid11Plus) {
+                val message = buildString {
+                    append("This app requires Android 11 (API 30) or newer.\n\nThe app will close.")
+                }
+                tvStatus.text = message
+                val dlg = AlertDialog.Builder(this)
+                    .setTitle("Unsupported Android version")
+                    .setMessage(message)
+                    .setCancelable(false)
+                    .create()
+                dlg.show()
+                handler.postDelayed({
+                    try { dlg.dismiss() } catch (_: Throwable) {}
+                    finish()
+                }, 10_000)
+                return
+            }
+        }
 
         // Setup tabs
         tabLayout.addTab(tabLayout.newTab().setText("History"))
