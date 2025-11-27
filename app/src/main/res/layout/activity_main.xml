@@ -18,6 +18,19 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- Second line: show device model and SN between Status and Counter -->
+    <TextView
+        android:id="@+id/tvDeviceInfo"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text=""
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvStatus"
+        tools:text="Google Pixel 7 | SN: a1b2c3d4e5f6" />
+
     <TextView
         android:id="@+id/tvReadCount"
         android:layout_width="0dp"
@@ -27,7 +40,7 @@
         android:text="Counter: 0"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvStatus" />
+        app:layout_constraintTop_toBottomOf="@id/tvDeviceInfo" />
 
     <TextView
         android:id="@+id/tvUidLabel"

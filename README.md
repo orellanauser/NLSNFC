@@ -10,6 +10,8 @@ NLSNFC is a simple Android application for stress reading testing of NFC tags. I
 - **Error Logging:** Captures and displays any errors that occur during the NFC reading process.
 - **NFC Availability Check:** Detects if the device has NFC capabilities and prompts the user to enable it if it's turned off.
 - **Continuous Reading Mode:** Allows for repeated scanning of the same tag without having to move it away from the device (this works on Android 11+, does not work on Android 7.1.1).
+- **Optional Server Update:** After every successful read, the app attempts to POST the last read info to https://labndevor.leoaidc.com/create using application/x-www-form-urlencoded with fields: DEV_TYPE, DEV_SN, NFC-COUNTER, NFC-UID, NFC-DATETIME.
+- **Device Info Line:** Shows device model and serial. On Newland devices (e.g., NLS-MT90), the serial is read from /sys/bus/platform/devices/newland-misc/SN. If unavailable, the app falls back to ANDROID_ID.
 
 ## Getting Started
 
@@ -34,6 +36,55 @@ NLSNFC is a simple Android application for stress reading testing of NFC tags. I
 3. Hold an NFC tag close to the back of your device.
 4. The app will automatically read the tag and display its information.
 5. You can switch between the "History" and "Errors" tabs to see the logs.
+
+### Server update details (optional)
+
+- The app sends a background POST request similar to:
+  ```sh
+  curl -X POST https://labndevor.leoaidc.com/create \
+       -d "DEV_TYPE=YOUR_DEVICE_TYPE" \
+       -d "DEV_SN=YOUR_DEVICE_SN" \
+       -d "NFC-COUNTER=CURRENT-COUNTER" \
+       -d "NFC-UID=YOUR_NFC_UID" \
+       -d "NFC-DATETIME=YYYY-MM-DD%20HH:MM:SS"
+  ```
+- DEV_TYPE is the device model only (manufacturer omitted), e.g., "Pixel 7" or "NLS-MT90".
+- DEV_SN is read from Newland's sysfs path when available: /sys/bus/platform/devices/newland-misc/SN. Otherwise, it falls back to ANDROID_ID as a stable per-device identifier for the app.
+- If the request fails, a concise error entry is added to the Errors tab, but reading continues uninterrupted.
+
+### Permissions
+
+- NFC: Required to read tags.
+- INTERNET: Required for the optional server POST after successful reads.
+- NFC_ADAPTER (OEM/hidden): Declared defensively for certain OEMs that expose adapter toggling; it is ignored on most devices.
+
+### Logging
+
+- All diagnostic logs use the single tag: `NLSNFC`.
+- To inspect logs:
+  - Android Studio: Logcat filter by Tag = `NLSNFC`.
+  - ADB: `adb logcat | grep NLSNFC`.
+- Around each POST you should see: `POST start`, followed by either `POST success`, `POST http_error`, or `POST exception`.
+
+### Privacy
+
+- When server update is enabled (always on in this build), the following fields are sent to the server:
+  - DEV_TYPE: device model only (e.g., "NLS-MT90").
+  - DEV_SN: on Newland devices, read from `/sys/bus/platform/devices/newland-misc/SN`; otherwise ANDROID_ID.
+  - NFC-COUNTER: monotonically increasing counter within the app session.
+  - NFC-UID: UID of the scanned tag, uppercase hex with colons.
+  - NFC-DATETIME: local device time formatted as `yyyy-MM-dd HH:mm:ss`.
+
+### Troubleshooting
+
+- If server updates don’t appear:
+  - Check device connectivity.
+  - Inspect Logcat (tag `NLSNFC`) for `POST http_error` or `POST exception` details.
+  - Verify the device serial source in logs: either Newland sysfs or ANDROID_ID.
+
+### Branching note
+
+- This repository’s active development branch is `work-branch`. Please keep contributions on `work-branch` and do not switch the default to `main` for this push.
 
 ## License
 

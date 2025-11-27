@@ -5,6 +5,8 @@
     <!-- Declare NFC capability -->
     <uses-feature android:name="android.hardware.nfc" android:required="true" />
     <uses-permission android:name="android.permission.NFC" />
+    <!-- Internet access for optional server update after reads -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Some OEMs expose a privileged NFC adapter permission used to toggle the adapter.
          We declare it defensively; on most devices it will be ignored. -->
     <uses-permission android:name="android.permission.NFC_ADAPTER" tools:ignore="UnknownPermission" />

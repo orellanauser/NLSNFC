@@ -16,7 +16,9 @@ import android.nfc.tech.NfcV
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import android.widget.ArrayAdapter
 import android.widget.ListView
 import android.widget.TextView
@@ -27,15 +29,34 @@ import androidx.appcompat.app.AlertDialog
 import com.google.android.material.tabs.TabLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.io.BufferedReader
+import java.io.File
+import java.io.BufferedWriter
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Main activity for the NLSNFC app.
+ *
+ * Purpose:
+ * - Provide a simple NFC stress-read test UI (continuously reads tags and increments a counter).
+ * - Optionally POST each successful read to a remote server without interrupting the test.
+ *
+ * Notes for maintainers:
+ * - Keep UI updates on the main thread; network work is done on a background thread.
+ * - Logging uses a single tag (LOG_TAG) to simplify Logcat filtering.
+ */
 class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
     private var nfcAdapter: NfcAdapter? = null
 
     private lateinit var tvStatus: TextView
+    private lateinit var tvDeviceInfo: TextView
     private lateinit var tvUid: TextView
     private lateinit var tvType: TextView
     private lateinit var tvTime: TextView
@@ -49,7 +70,17 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     private var lastReadingSummary: String? = null
     private var nfcPromptShowing: Boolean = false
     private var readCounter: Int = 0
+    // Upper bound for items kept in History/Errors adapters to avoid unbounded growth
     private val MAX_HISTORY = 200
+
+    /**
+     * System file path where the device's serial number is stored.
+     * This path is specific to Newland Android devices (e.g., NLS-MT90).
+     */
+    private val SN_PATH = "/sys/bus/platform/devices/newland-misc/SN"
+
+    // Single Logcat tag for all app diagnostics
+    private val LOG_TAG = "NLSNFC"
 
     // Re-arm reader mode periodically to allow consecutive reads of the same card
     private val handler = Handler(Looper.getMainLooper())
@@ -101,6 +132,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         }
 
         tvStatus = findViewById(R.id.tvStatus)
+        tvDeviceInfo = findViewById(R.id.tvDeviceInfo)
         tvUid = findViewById(R.id.tvUid)
         tvType = findViewById(R.id.tvType)
         tvTime = findViewById(R.id.tvTime)
@@ -160,6 +192,18 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         } else {
             updateUiForNfcState()
         }
+
+        // Populate second line with device model and serial/ID
+        val devType = getDeviceType()
+        val devSn = getDeviceSn()
+        val info = buildString {
+            append(devType.ifBlank { "Unknown device" })
+            if (devSn.isNotBlank()) {
+                append(" | SN: ")
+                append(devSn)
+            }
+        }
+        tvDeviceInfo.text = info
     }
 
     /**
@@ -174,7 +218,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         super.onResume()
         // Update UI and prompt user if NFC is disabled
         updateUiForNfcState()
-        // Try to mitigate the previous "gost" error by resetting the NFC adapter
+        // Try to mitigate the previous "ghost" error by resetting the NFC adapter
         // using disable() followed by enable() before starting to read.
         // On most devices these methods are hidden/privileged; we attempt via reflection
         // and fall back to normal behavior if not available.
@@ -290,9 +334,12 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             // Build multiline summary
             val summary = "Read\n$time\n$type\n$uid\n$protocols"
 
+            // We'll track the current count to report to server
+            var currentCount: Int
             runOnUiThread {
                 // Increment and display read counter
                 readCounter += 1
+                currentCount = readCounter
                 tvReadCount.text = "Counter: $readCounter"
                 // Move previous reading to history
                 lastReadingSummary?.let { prev ->
@@ -307,6 +354,21 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 tvUid.text = "$uid\n$protocols"
 
                 lastReadingSummary = summary
+                // Fire-and-forget optional server update (does not block UI)
+                postLastReadAsync(
+                    devType = getDeviceType(),
+                    devSn = getDeviceSn(),
+                    counter = currentCount,
+                    uid = uid,
+                    dateTime = time
+                ) { err ->
+                    // On failure, add a short note to errors list without disrupting flow
+                    err?.let {
+                        val es = "${time} | POST_FAIL | ${it}"
+                        errorAdapter.insert(es, 0)
+                        trimAdapter(errorAdapter)
+                    }
+                }
             }
         } catch (e: Throwable) {
             val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
@@ -332,6 +394,120 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 errorAdapter.insert(errorSummary, 0)
                 trimAdapter(errorAdapter)
             }
+        }
+    }
+
+    /**
+     * Returns the device model string for server reporting and UI.
+     * Uses Build.MODEL only (manufacturer omitted as requested).
+     */
+    private fun getDeviceType(): String {
+        val model = Build.MODEL ?: ""
+        return model.trim()
+    }
+
+    /**
+     * Returns a device serial/ID string for server reporting.
+     * Uses ANDROID_ID as a stable per-device identifier for the app.
+     */
+    private fun getDeviceSn(): String {
+        // 1) Try Newland OEM sysfs path first
+        try {
+            val f = File(SN_PATH)
+            if (f.exists() && f.canRead()) {
+                val raw = f.readText(Charsets.UTF_8).trim()
+                val sn = raw.replace("\u0000", "").trim() // strip any NULs
+                if (sn.isNotEmpty()) {
+                    Log.i(LOG_TAG, "SN source: newland sysfs | value=$sn")
+                    return sn
+                }
+            }
+        } catch (_: Throwable) {
+            // ignore and fallback
+        }
+
+        // 2) Fallback: ANDROID_ID as stable per-device ID
+        return try {
+            val id = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
+            Log.i(LOG_TAG, "SN source: ANDROID_ID | value=$id")
+            id
+        } catch (_: Throwable) {
+            Log.w(LOG_TAG, "SN source: ANDROID_ID lookup failed; using UNKNOWN")
+            "UNKNOWN"
+        }
+    }
+
+    /**
+     * Posts last read info to the remote server using application/x-www-form-urlencoded.
+     * Runs in a background thread; callback receives error message on failure or null on success.
+     */
+    private fun postLastReadAsync(
+        devType: String,
+        devSn: String,
+        counter: Int,
+        uid: String,
+        dateTime: String,
+        onDone: (error: String?) -> Unit
+    ) {
+        // If required fields are empty, skip silently
+        if (devType.isBlank() && devSn.isBlank()) {
+            Log.w(LOG_TAG, "POST skipped: both DEV_TYPE and DEV_SN are blank")
+            onDone(null)
+            return
+        }
+        Thread {
+            var conn: HttpURLConnection? = null
+            try {
+                val url = URL("https://labndevor.leoaidc.com/create")
+                Log.i(
+                    LOG_TAG,
+                    "POST start: url=${url} DEV_TYPE=${devType} DEV_SN=${devSn} NFC-COUNTER=${counter} NFC-UID=${uid} NFC-DATETIME=${dateTime}"
+                )
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                }
+
+                val body = buildForm(
+                    "DEV_TYPE" to devType,
+                    "DEV_SN" to devSn,
+                    "NFC-COUNTER" to counter.toString(),
+                    "NFC-UID" to uid,
+                    "NFC-DATETIME" to dateTime
+                )
+                BufferedWriter(OutputStreamWriter(conn.outputStream, Charsets.UTF_8)).use { w ->
+                    w.write(body)
+                }
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    Log.i(LOG_TAG, "POST success: HTTP $code")
+                    runOnUiThread { onDone(null) }
+                } else {
+                    val msg = conn.responseMessage
+                    Log.w(LOG_TAG, "POST http_error: code=$code message=$msg")
+                    runOnUiThread { onDone("HTTP $code ${msg ?: ""}".trim()) }
+                }
+            } catch (t: Throwable) {
+                Log.e(LOG_TAG, "POST exception: ${t.message}", t)
+                runOnUiThread { onDone(t.message ?: t::class.java.simpleName) }
+            } finally {
+                conn?.disconnect()
+            }
+        }.start()
+    }
+
+    /**
+     * Builds a URL-encoded form string from a given list of key-value pairs.
+     * Each pair is concatenated with "&" and each key-value pair is URL-encoded using UTF-8.
+     * @param pairs A list of key-value pairs to build the form string from.
+     * @return The URL-encoded form string.
+     */
+    private fun buildForm(vararg pairs: Pair<String, String>): String {
+        return pairs.joinToString("&") { (k, v) ->
+            URLEncoder.encode(k, "UTF-8") + "=" + URLEncoder.encode(v, "UTF-8")
         }
     }
 
